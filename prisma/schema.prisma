@@ -1,0 +1,121 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model AdminUser {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+}
+
+model Settings {
+  id                 Int      @id @default(1)
+  businessName       String   @default("Barbería")
+  serviceName        String   @default("Corte de cabello")
+  servicePriceCents  Int      @default(1200000)
+  serviceDurationMin Int      @default(30)
+  bufferMin          Int      @default(10)
+  minLeadTimeMin     Int      @default(60)
+  bookingWindowDays  Int      @default(60)
+  penaltyDays        Int      @default(30)
+  timezone           String   @default("America/Argentina/Buenos_Aires")
+  cancellationPolicy String   @default("Si no podés asistir, avisanos con al menos 24 horas de anticipación.")
+  updatedAt          DateTime @updatedAt
+}
+
+model WeeklySchedule {
+  id          Int     @id @default(autoincrement())
+  dayOfWeek   Int
+  startMinute Int
+  endMinute   Int
+  enabled     Boolean @default(true)
+
+  @@index([dayOfWeek])
+}
+
+model DayOverride {
+  id          Int          @id @default(autoincrement())
+  date        String       @unique
+  type        OverrideType
+  startMinute Int?
+  endMinute   Int?
+  note        String?
+  createdAt   DateTime     @default(now())
+}
+
+enum OverrideType {
+  CLOSED
+  CUSTOM_HOURS
+}
+
+model TimeBlock {
+  id          Int      @id @default(autoincrement())
+  date        String
+  startMinute Int
+  endMinute   Int
+  reason      String?
+  createdAt   DateTime @default(now())
+
+  @@index([date])
+}
+
+model Appointment {
+  id          String            @id @default(cuid())
+  code        String            @unique
+  clientName  String
+  clientPhone String
+  date        String
+  startMinute Int
+  endMinute   Int
+  status      AppointmentStatus @default(CONFIRMED)
+  source      AppointmentSource @default(ONLINE)
+  priceCents  Int
+  notes       String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  penalty     ClientPenalty?
+
+  @@index([date, status])
+  @@index([clientPhone])
+}
+
+model ClientPenalty {
+  id            String        @id @default(cuid())
+  clientPhone   String
+  appointmentId String?       @unique
+  reason        PenaltyReason @default(NO_SHOW)
+  startsAt      DateTime      @default(now())
+  endsAt        DateTime
+  liftedAt      DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  appointment Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+
+  @@index([clientPhone, endsAt])
+  @@index([endsAt])
+}
+
+enum PenaltyReason {
+  NO_SHOW
+}
+
+enum AppointmentStatus {
+  CONFIRMED
+  CANCELLED_CLIENT
+  CANCELLED_ADMIN
+  COMPLETED
+  NO_SHOW
+}
+
+enum AppointmentSource {
+  ONLINE
+  MANUAL
+}
