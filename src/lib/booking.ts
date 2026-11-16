@@ -62,6 +62,45 @@ export type DayContext = {
   >;
 };
 
+export async function getWorkingDaysInRange(
+  startKey: string,
+  endKey: string,
+): Promise<string[]> {
+  if (!isValidDateKey(startKey) || !isValidDateKey(endKey) || endKey < startKey) {
+    return [];
+  }
+
+  const [weeklySchedule, overrides] = await Promise.all([
+    prisma.weeklySchedule.findMany({ orderBy: { startMinute: "asc" } }),
+    prisma.dayOverride.findMany({
+      where: { date: { gte: startKey, lte: endKey } },
+    }),
+  ]);
+
+  const overrideByDate = new Map<string, DayOverrideInput>();
+  for (const override of overrides) {
+    overrideByDate.set(override.date, {
+      type: override.type,
+      startMinute: override.startMinute,
+      endMinute: override.endMinute,
+    });
+  }
+
+  const days: string[] = [];
+  for (let key = startKey; key <= endKey; key = addDaysToKey(key, 1)) {
+    const intervals = getBaseIntervals({
+      dateKey: key,
+      weeklySchedule,
+      override: overrideByDate.get(key) ?? null,
+    });
+    if (intervals.length > 0) {
+      days.push(key);
+    }
+  }
+
+  return days;
+}
+
 export async function loadDayContext(dateKey: string): Promise<DayContext> {
   const settings = await getSettings();
 

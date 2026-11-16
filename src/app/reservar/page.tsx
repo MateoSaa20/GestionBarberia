@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { SiteHeader } from "@/components/site-header";
-import { getAvailability } from "@/lib/booking";
+import { getAvailability, getWorkingDaysInRange } from "@/lib/booking";
 import { getActiveServices } from "@/lib/services";
 import { getSettings } from "@/lib/settings";
 import {
@@ -25,6 +25,8 @@ const closedMessages: Record<string, string> = {
   NO_SCHEDULE: "No hay horarios de atención configurados para ese día.",
   OUT_OF_WINDOW: "Elegí una fecha dentro del período de reserva.",
 };
+
+const NO_WORKING_DAYS_MESSAGE = "Se reservaron todos los horarios para esta semana.";
 
 function dayChipLabel(dateKey: string) {
   const date = dateKeyToUtcDate(dateKey);
@@ -56,22 +58,22 @@ export default async function ReservarPage() {
   }));
 
   const initialServiceId = serviceOptions[0]?.id ?? "";
-  const availability = initialServiceId
-    ? await getAvailability(today, { serviceIds: [initialServiceId] })
-    : { slots: [], closedReason: "NO_SERVICE" as const };
+  const workingDays = await getWorkingDaysInRange(today, windowEnd);
+  const days = workingDays.slice(0, 14).map((key) => ({ key, ...dayChipLabel(key) }));
 
-  const days: Array<{ key: string; weekday: string; day: string }> = [];
-  for (let index = 0; index < 14; index += 1) {
-    const key = addDaysToKey(today, index);
-    if (key > windowEnd) break;
-    days.push({ key, ...dayChipLabel(key) });
-  }
+  const initialDate = days[0]?.key ?? today;
+  const availability =
+    initialServiceId && days.length > 0
+      ? await getAvailability(initialDate, { serviceIds: [initialServiceId] })
+      : { slots: [], closedReason: "NO_SCHEDULE" as const };
 
   const initialMessage =
-    availability.slots.length > 0
-      ? null
-      : (closedMessages[availability.closedReason ?? ""] ??
-        "No quedan horarios libres para este día.");
+    days.length === 0
+      ? NO_WORKING_DAYS_MESSAGE
+      : availability.slots.length > 0
+        ? null
+        : (closedMessages[availability.closedReason ?? ""] ??
+          "No quedan horarios libres para este día.");
 
   return (
     <div className="flex min-h-screen flex-col bg-stone-50">
@@ -96,7 +98,7 @@ export default async function ReservarPage() {
             services={serviceOptions}
             initialServiceId={initialServiceId}
             days={days}
-            initialDate={today}
+            initialDate={initialDate}
             initialSlots={availability.slots}
             initialMessage={initialMessage}
             minDate={today}

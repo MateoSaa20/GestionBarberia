@@ -14,6 +14,15 @@ import type { Slot } from "@/lib/availability";
 
 export type BookingFormState = { error?: string } | undefined;
 
+function normalizeClientName(value: string) {
+  return value
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/(^|\s)(\p{L})/gu, (match, separator: string, letter: string) => {
+      return `${separator}${letter.toLocaleUpperCase("es-AR")}`;
+    });
+}
+
 const bookingSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Fecha inválida"),
   time: z.string().min(1, "Elegí un horario"),
@@ -22,12 +31,15 @@ const bookingSchema = z.object({
     .string()
     .trim()
     .min(2, "Ingresá tu nombre")
-    .max(80, "El nombre es demasiado largo"),
+    .max(80, "El nombre es demasiado largo")
+    .transform(normalizeClientName),
   clientPhone: z
     .string()
     .trim()
-    .min(6, "Ingresá un teléfono de contacto")
-    .max(30, "El teléfono es demasiado largo"),
+    .regex(
+      /^37\d{2} \d{6}$/,
+      "Ingresá un teléfono completo con formato 37xx xxxxxx",
+    ),
   notes: z.string().trim().max(500, "Las notas son demasiado largas").optional(),
 });
 

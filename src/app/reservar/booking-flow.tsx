@@ -24,6 +24,18 @@ type ServiceOption = {
   durationLabel: string;
 };
 
+function formatClientName(value: string) {
+  return value.replace(/(^|\s)(\p{L})/gu, (match, separator: string, letter: string) => {
+    return `${separator}${letter.toLocaleUpperCase("es-AR")}`;
+  });
+}
+
+function formatClientPhone(value: string) {
+  const digits = value.replace(/\D/g, "").slice(0, 10);
+  if (digits.length <= 4) return digits;
+  return `${digits.slice(0, 4)} ${digits.slice(4)}`;
+}
+
 export function BookingFlow({
   services,
   initialServiceId,
@@ -54,6 +66,8 @@ export function BookingFlow({
   const [slots, setSlots] = useState<Slot[]>(initialSlots);
   const [message, setMessage] = useState<string | null>(initialMessage);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
+  const [clientName, setClientName] = useState("");
+  const [clientPhone, setClientPhone] = useState("");
   const [loadingSlots, startTransition] = useTransition();
 
   const selectedService =
@@ -132,32 +146,38 @@ export function BookingFlow({
           <h2 className="text-sm font-semibold text-stone-900">Elegí el día</h2>
         </div>
 
-        <div className="mt-3 grid grid-cols-4 gap-2 sm:grid-cols-7">
-          {days.map((option) => {
-            const active = option.key === date;
-            return (
-              <button
-                key={option.key}
-                type="button"
-                onClick={() => selectDate(option.key)}
-                className={`flex flex-col items-center rounded-xl border px-2 py-2 text-center transition ${
-                  active
-                    ? "border-stone-900 bg-stone-900 text-white"
-                    : "border-stone-200 bg-white text-stone-700 hover:border-amber-400"
-                }`}
-              >
-                <span
-                  className={`text-[10px] uppercase ${
-                    active ? "text-stone-300" : "text-stone-400"
+        {days.length === 0 ? (
+          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            {message ?? "Se reservaron todos los horarios para esta semana."}
+          </p>
+        ) : (
+          <div className="mt-3 grid grid-cols-4 gap-2 sm:grid-cols-7">
+            {days.map((option) => {
+              const active = option.key === date;
+              return (
+                <button
+                  key={option.key}
+                  type="button"
+                  onClick={() => selectDate(option.key)}
+                  className={`flex flex-col items-center rounded-xl border px-2 py-2 text-center transition ${
+                    active
+                      ? "border-stone-900 bg-stone-900 text-white"
+                      : "border-stone-200 bg-white text-stone-700 hover:border-amber-400"
                   }`}
                 >
-                  {option.weekday}
-                </span>
-                <span className="text-lg font-semibold">{option.day}</span>
-              </button>
-            );
-          })}
-        </div>
+                  <span
+                    className={`text-[10px] uppercase ${
+                      active ? "text-stone-300" : "text-stone-400"
+                    }`}
+                  >
+                    {option.weekday}
+                  </span>
+                  <span className="text-lg font-semibold">{option.day}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         <label className="mt-3 flex items-center gap-2">
           <span className="shrink-0 text-xs text-stone-500">Otra fecha</span>
@@ -240,6 +260,8 @@ export function BookingFlow({
               name="clientName"
               required
               autoComplete="name"
+              value={clientName}
+              onChange={(event) => setClientName(formatClientName(event.target.value))}
               className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-amber-600 focus:ring-2 focus:ring-amber-600/20"
             />
           </div>
@@ -256,7 +278,13 @@ export function BookingFlow({
               name="clientPhone"
               required
               autoComplete="tel"
-              inputMode="tel"
+              inputMode="numeric"
+              placeholder="37xx xxxxxx"
+              maxLength={11}
+              pattern="37\d{2} \d{6}"
+              title="Ingresá un teléfono completo con formato 37xx xxxxxx"
+              value={clientPhone}
+              onChange={(event) => setClientPhone(formatClientPhone(event.target.value))}
               className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-amber-600 focus:ring-2 focus:ring-amber-600/20"
             />
           </div>
