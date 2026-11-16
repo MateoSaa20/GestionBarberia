@@ -10,6 +10,7 @@ import {
   User,
 } from "lucide-react";
 import { getDayOverview } from "@/lib/booking";
+import { getActiveServices, summarizeServiceNames } from "@/lib/services";
 import { getSettings } from "@/lib/settings";
 import {
   addDaysToKey,
@@ -40,6 +41,7 @@ export const dynamic = "force-dynamic";
 
 type AgendaSearchParams = {
   date?: string | string[];
+  service?: string | string[];
   ok?: string | string[];
   error?: string | string[];
 };
@@ -51,26 +53,33 @@ export default async function AgendaPage({
 }) {
   const params = await searchParams;
   const settings = await getSettings();
+  const services = await getActiveServices();
   const today = todayKey(new Date(), settings.timezone);
   const dateParam = firstParam(params.date);
   const date = dateParam && isValidDateKey(dateParam) ? dateParam : today;
+  const serviceParam = firstParam(params.service);
+  const selectedService =
+    services.find((service) => service.id === serviceParam) ?? services[0];
   const okMessage = firstParam(params.ok);
   const errorMessage = firstParam(params.error);
 
-  const overview = await getDayOverview(date);
+  const overview = await getDayOverview(
+    date,
+    selectedService ? [selectedService.id] : undefined,
+  );
   const { appointments, slots, override, blocks, closedReason } = overview;
 
   const activeAppointments = appointments.filter(
     (appointment) => appointment.status === "CONFIRMED",
   );
 
-  const redirectTo = `/admin/agenda?date=${date}`;
+  const redirectTo = `/admin/agenda?date=${date}&service=${selectedService?.id ?? ""}`;
 
   return (
     <div>
       <PageHeader
         title="Agenda"
-        subtitle={`${settings.serviceName} · ${formatDateLong(date)}`}
+        subtitle={formatDateLong(date)}
         actions={
           <Link
             href="/admin/disponibilidad"
@@ -92,14 +101,14 @@ export default async function AgendaPage({
       <div className="mt-4 flex flex-col gap-3 rounded-xl border border-stone-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
           <Link
-            href={`/admin/agenda?date=${addDaysToKey(date, -1)}`}
+            href={`/admin/agenda?date=${addDaysToKey(date, -1)}&service=${selectedService?.id ?? ""}`}
             className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-stone-300 text-stone-600 hover:bg-stone-50"
             aria-label="Día anterior"
           >
             <ChevronLeft className="h-4 w-4" />
           </Link>
           <Link
-            href={`/admin/agenda?date=${addDaysToKey(date, 1)}`}
+            href={`/admin/agenda?date=${addDaysToKey(date, 1)}&service=${selectedService?.id ?? ""}`}
             className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-stone-300 text-stone-600 hover:bg-stone-50"
             aria-label="Día siguiente"
           >
@@ -113,7 +122,7 @@ export default async function AgendaPage({
           </Link>
         </div>
 
-        <form className="flex items-center gap-2" method="get">
+        <form className="flex flex-wrap items-center gap-2" method="get">
           <label htmlFor="date" className="sr-only">
             Elegir fecha
           </label>
@@ -124,6 +133,21 @@ export default async function AgendaPage({
             defaultValue={date}
             className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-stone-700 outline-none focus:border-amber-600 focus:ring-2 focus:ring-amber-600/20"
           />
+          <label htmlFor="service" className="sr-only">
+            Elegir servicio
+          </label>
+          <select
+            id="service"
+            name="service"
+            defaultValue={selectedService?.id ?? ""}
+            className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-stone-700 outline-none focus:border-amber-600 focus:ring-2 focus:ring-amber-600/20"
+          >
+            {services.map((service) => (
+              <option key={service.id} value={service.id}>
+                {service.name}
+              </option>
+            ))}
+          </select>
           <button
             type="submit"
             className="inline-flex items-center gap-2 rounded-lg bg-stone-900 px-3 py-2 text-sm font-medium text-white hover:bg-stone-800"
@@ -153,10 +177,10 @@ export default async function AgendaPage({
         </div>
         <div className="rounded-xl border border-stone-200 bg-white p-4">
           <p className="text-xs font-medium uppercase tracking-wide text-stone-500">
-            Precio del servicio
+            Servicios activos
           </p>
           <p className="mt-1 text-2xl font-semibold text-stone-900">
-            {formatCurrency(settings.servicePriceCents)}
+            {services.length}
           </p>
         </div>
       </div>
@@ -222,6 +246,9 @@ export default async function AgendaPage({
                     </div>
 
                     <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-stone-100 pt-3 text-xs text-stone-500">
+                      <span className="font-medium text-stone-700">
+                        {summarizeServiceNames(appointment.services)}
+                      </span>
                       <span>
                         Precio: {formatCurrency(appointment.priceCents)}
                       </span>
@@ -325,6 +352,16 @@ export default async function AgendaPage({
             <p className="mt-1 text-xs text-stone-500">
               Para clientes que reservan por teléfono o en el local.
             </p>
+            {selectedService ? (
+              <p className="mt-2 rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-600">
+                Servicio:{" "}
+                <span className="font-medium text-stone-900">
+                  {selectedService.name}
+                </span>{" "}
+                · {selectedService.durationMin} min ·{" "}
+                {formatCurrency(selectedService.priceCents)}
+              </p>
+            ) : null}
 
             {slots.length === 0 ? (
               <p className="mt-3 rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-500">
@@ -340,6 +377,11 @@ export default async function AgendaPage({
                 className="mt-3 space-y-3"
               >
                 <input type="hidden" name="date" value={date} />
+                <input
+                  type="hidden"
+                  name="serviceId"
+                  value={selectedService?.id ?? ""}
+                />
 
                 <div>
                   <label

@@ -11,6 +11,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "email:test": "node scripts/test-email.mjs",
     "postinstall": "prisma generate",
     "db:up": "docker compose up -d db",
     "db:migrate": "prisma migrate dev",

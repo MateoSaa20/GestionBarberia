@@ -6,6 +6,7 @@ import {
   CalendarDays,
   Clock3,
   ListChecks,
+  Scissors,
   Settings,
   ShieldAlert,
 } from "lucide-react";
@@ -19,6 +20,7 @@ const links = [
     icon: ShieldAlert,
   },
   { href: "/admin/disponibilidad", label: "Disponibilidad", icon: Clock3 },
+  { href: "/admin/servicios", label: "Servicios", icon: Scissors },
   { href: "/admin/configuracion", label: "Configuración", icon: Settings },
 ];
 

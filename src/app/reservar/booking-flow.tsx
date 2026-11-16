@@ -1,7 +1,13 @@
 "use client";
 
 import { useActionState, useState, useTransition } from "react";
-import { CalendarCheck, CalendarDays, Clock3, Loader2 } from "lucide-react";
+import {
+  CalendarCheck,
+  CalendarDays,
+  Clock3,
+  Loader2,
+  Scissors,
+} from "lucide-react";
 import {
   createBookingAction,
   getSlotsAction,
@@ -11,54 +17,114 @@ import type { Slot } from "@/lib/availability";
 
 type DayOption = { key: string; weekday: string; day: string };
 
+type ServiceOption = {
+  id: string;
+  name: string;
+  priceLabel: string;
+  durationLabel: string;
+};
+
 export function BookingFlow({
+  services,
+  initialServiceId,
   days,
   initialDate,
   initialSlots,
   initialMessage,
   minDate,
   maxDate,
-  durationLabel,
-  priceLabel,
   penaltyDays,
 }: {
+  services: ServiceOption[];
+  initialServiceId: string;
   days: DayOption[];
   initialDate: string;
   initialSlots: Slot[];
   initialMessage: string | null;
   minDate: string;
   maxDate: string;
-  durationLabel: string;
-  priceLabel: string;
   penaltyDays: number;
 }) {
   const [state, formAction, pending] = useActionState<BookingFormState, FormData>(
     createBookingAction,
     undefined,
   );
+  const [serviceId, setServiceId] = useState(initialServiceId);
   const [date, setDate] = useState(initialDate);
   const [slots, setSlots] = useState<Slot[]>(initialSlots);
   const [message, setMessage] = useState<string | null>(initialMessage);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
   const [loadingSlots, startTransition] = useTransition();
 
-  function selectDate(next: string) {
-    if (next === date) return;
-    setDate(next);
-    setSelectedTime(null);
+  const selectedService =
+    services.find((service) => service.id === serviceId) ?? services[0];
+
+  function loadSlots(nextDate: string, nextServiceId: string) {
     setSlots([]);
     setMessage(null);
+    setSelectedTime(null);
     startTransition(async () => {
-      const result = await getSlotsAction(next);
+      const result = await getSlotsAction(nextDate, nextServiceId);
       setSlots(result.slots);
       setMessage(result.message);
     });
+  }
+
+  function selectDate(next: string) {
+    if (next === date) return;
+    setDate(next);
+    loadSlots(next, serviceId);
+  }
+
+  function selectService(next: string) {
+    if (next === serviceId) return;
+    setServiceId(next);
+    loadSlots(date, next);
   }
 
   return (
     <form action={formAction} className="space-y-4">
       <input type="hidden" name="date" value={date} />
       <input type="hidden" name="time" value={selectedTime ?? ""} />
+      <input type="hidden" name="serviceId" value={serviceId} />
+
+      {services.length > 1 ? (
+        <div className="rounded-2xl border border-stone-200 bg-white p-4 sm:p-5">
+          <div className="flex items-center gap-2">
+            <Scissors className="h-4 w-4 text-amber-600" />
+            <h2 className="text-sm font-semibold text-stone-900">
+              Elegí el servicio
+            </h2>
+          </div>
+
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {services.map((service) => {
+              const active = service.id === serviceId;
+              return (
+                <button
+                  key={service.id}
+                  type="button"
+                  onClick={() => selectService(service.id)}
+                  className={`flex items-center justify-between rounded-xl border px-3 py-2.5 text-left transition ${
+                    active
+                      ? "border-stone-900 bg-stone-900 text-white"
+                      : "border-stone-200 bg-white text-stone-700 hover:border-amber-400"
+                  }`}
+                >
+                  <span className="text-sm font-medium">{service.name}</span>
+                  <span
+                    className={`text-xs ${
+                      active ? "text-stone-300" : "text-stone-500"
+                    }`}
+                  >
+                    {service.priceLabel} · {service.durationLabel}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
 
       <div className="rounded-2xl border border-stone-200 bg-white p-4 sm:p-5">
         <div className="flex items-center gap-2">
@@ -151,8 +217,9 @@ export function BookingFlow({
 
         {selectedTime ? (
           <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
-            Turno: <span className="font-semibold">{selectedTime} hs</span> ·{" "}
-            {durationLabel} · {priceLabel}
+            {selectedService?.name} ·{" "}
+            <span className="font-semibold">{selectedTime} hs</span> ·{" "}
+            {selectedService?.durationLabel} · {selectedService?.priceLabel}
           </p>
         ) : (
           <p className="mt-2 text-xs text-stone-500">

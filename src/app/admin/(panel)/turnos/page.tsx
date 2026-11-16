@@ -9,6 +9,7 @@ import {
   User,
 } from "lucide-react";
 import { prisma } from "@/lib/db";
+import { summarizeServiceNames } from "@/lib/services";
 import { getSettings } from "@/lib/settings";
 import {
   formatCurrency,
@@ -93,6 +94,7 @@ export default async function TurnosPage({
         ? [{ date: "desc" }, { startMinute: "desc" }]
         : [{ date: "asc" }, { startMinute: "asc" }],
     take: 100,
+    include: { services: { orderBy: { sortOrder: "asc" } } },
   });
 
   const query = new URLSearchParams();
@@ -259,6 +261,9 @@ export default async function TurnosPage({
                 </div>
 
                 <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-stone-100 pt-3 text-xs text-stone-500">
+                  <span className="font-medium text-stone-700">
+                    {summarizeServiceNames(appointment.services)}
+                  </span>
                   <span>Precio: {formatCurrency(appointment.priceCents)}</span>
                   <span>
                     {appointment.source === "ONLINE"

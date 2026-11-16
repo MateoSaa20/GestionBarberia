@@ -3,6 +3,7 @@ import "server-only";
 import { Prisma, type AppointmentStatus } from "@prisma/client";
 import { prisma } from "./db";
 import { getSettings, type Settings } from "./settings";
+import { combineServices, resolveBookingServices } from "./services";
 import {
   computeAvailability,
   getBaseIntervals,
@@ -34,6 +35,7 @@ export type BookingErrorCode =
   | "CLOSED"
   | "NOT_FOUND"
   | "INVALID_STATUS"
+  | "INVALID_SERVICE"
   | "PENALIZED";
 
 export class BookingError extends Error {
@@ -100,13 +102,16 @@ export async function loadDayContext(dateKey: string): Promise<DayContext> {
 
 export async function getAvailability(
   dateKey: string,
-  options: { forAdmin?: boolean } = {},
-): Promise<AvailabilityResult & { settings: Settings }> {
+  options: { forAdmin?: boolean; serviceIds?: string[] } = {},
+): Promise<AvailabilityResult & { settings: Settings; services: Awaited<ReturnType<typeof resolveBookingServices>> }> {
   if (!isValidDateKey(dateKey)) {
     throw new BookingError("INVALID_DATE", "Fecha inválida");
   }
 
   const context = await loadDayContext(dateKey);
+  const services = await resolveBookingServices(options.serviceIds);
+  const { totalDurationMin } = combineServices(services);
+  const durationMin = totalDurationMin > 0 ? totalDurationMin : 30;
   const now = new Date();
   const today = todayKey(now, context.settings.timezone);
 
@@ -118,6 +123,7 @@ export async function getAvailability(
       slots: [],
       closedReason: "OUT_OF_WINDOW",
       settings: context.settings,
+      services,
     };
   }
 
@@ -127,7 +133,7 @@ export async function getAvailability(
     override: context.override,
     timeBlocks: context.timeBlocks,
     appointments: context.appointments,
-    serviceDurationMin: context.settings.serviceDurationMin,
+    serviceDurationMin: durationMin,
     bufferMin: context.settings.bufferMin,
     minLeadTimeMin: options.forAdmin ? 0 : context.settings.minLeadTimeMin,
     allowPastSlots: options.forAdmin,
@@ -135,15 +141,18 @@ export async function getAvailability(
     timeZone: context.settings.timezone,
   });
 
-  return { ...result, settings: context.settings };
+  return { ...result, settings: context.settings, services };
 }
 
-export async function getDayOverview(dateKey: string) {
+export async function getDayOverview(dateKey: string, serviceIds?: string[]) {
   if (!isValidDateKey(dateKey)) {
     throw new BookingError("INVALID_DATE", "Fecha inválida");
   }
 
   const context = await loadDayContext(dateKey);
+  const services = await resolveBookingServices(serviceIds);
+  const { totalDurationMin } = combineServices(services);
+  const durationMin = totalDurationMin > 0 ? totalDurationMin : 30;
   const now = new Date();
   const availability = computeAvailability({
     dateKey,
@@ -151,7 +160,7 @@ export async function getDayOverview(dateKey: string) {
     override: context.override,
     timeBlocks: context.timeBlocks,
     appointments: context.appointments,
-    serviceDurationMin: context.settings.serviceDurationMin,
+    serviceDurationMin: durationMin,
     bufferMin: context.settings.bufferMin,
     minLeadTimeMin: 0,
     allowPastSlots: true,
@@ -163,6 +172,7 @@ export async function getDayOverview(dateKey: string) {
     prisma.appointment.findMany({
       where: { date: dateKey },
       orderBy: { startMinute: "asc" },
+      include: { services: { orderBy: { sortOrder: "asc" } } },
     }),
     prisma.dayOverride.findUnique({ where: { date: dateKey } }),
     prisma.timeBlock.findMany({
@@ -173,6 +183,7 @@ export async function getDayOverview(dateKey: string) {
 
   return {
     settings: context.settings,
+    services,
     appointments,
     override: overrides,
     blocks,
@@ -190,14 +201,14 @@ async function assertSlotBookable(
   input: {
     dateKey: string;
     startMinute: number;
+    durationMin: number;
     settings: Settings;
     now: Date;
     options: SlotCheckOptions;
   },
 ): Promise<number> {
-  const { dateKey, startMinute, settings, now, options } = input;
-  const duration = settings.serviceDurationMin;
-  const endMinute = startMinute + duration;
+  const { dateKey, startMinute, durationMin, settings, now, options } = input;
+  const endMinute = startMinute + durationMin;
 
   if (startMinute < 0 || endMinute > 1440) {
     throw new BookingError("INVALID_TIME", "Horario inválido");
@@ -318,10 +329,47 @@ async function withDateLock<T>(
 export type OnlineBookingInput = {
   date: string;
   startMinute: number;
+  serviceIds: string[];
   clientName: string;
   clientPhone: string;
   notes?: string;
 };
+
+async function resolveActiveServices(
+  tx: Prisma.TransactionClient,
+  serviceIds: string[],
+) {
+  const unique = Array.from(new Set(serviceIds));
+  const services = await tx.service.findMany({
+    where: { id: { in: unique }, active: true },
+  });
+
+  const byId = new Map(services.map((service) => [service.id, service]));
+  const ordered = unique
+    .map((id) => byId.get(id))
+    .filter((service): service is (typeof services)[number] =>
+      Boolean(service),
+    );
+
+  if (ordered.length === 0) {
+    throw new BookingError(
+      "INVALID_SERVICE",
+      "Elegí al menos un servicio disponible",
+    );
+  }
+
+  return ordered;
+}
+
+async function generateUniqueCode(tx: Prisma.TransactionClient) {
+  let code = generateAppointmentCode();
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const exists = await tx.appointment.findUnique({ where: { code } });
+    if (!exists) break;
+    code = generateAppointmentCode();
+  }
+  return code;
+}
 
 export async function createOnlineAppointment(input: OnlineBookingInput) {
   if (!isValidDateKey(input.date)) {
@@ -333,22 +381,21 @@ export async function createOnlineAppointment(input: OnlineBookingInput) {
   const clientPhone = normalizeClientPhone(input.clientPhone);
 
   const appointment = await withDateLock(input.date, async (tx) => {
+    const services = await resolveActiveServices(tx, input.serviceIds);
+    const { totalDurationMin, totalPriceCents } = combineServices(services);
+
     await assertClientNotPenalized(tx, clientPhone, now, settings);
 
     const endMinute = await assertSlotBookable(tx, {
       dateKey: input.date,
       startMinute: input.startMinute,
+      durationMin: totalDurationMin,
       settings,
       now,
       options: { allowPastSlots: false },
     });
 
-    let code = generateAppointmentCode();
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      const exists = await tx.appointment.findUnique({ where: { code } });
-      if (!exists) break;
-      code = generateAppointmentCode();
-    }
+    const code = await generateUniqueCode(tx);
 
     return tx.appointment.create({
       data: {
@@ -360,9 +407,19 @@ export async function createOnlineAppointment(input: OnlineBookingInput) {
         endMinute,
         status: "CONFIRMED",
         source: "ONLINE",
-        priceCents: settings.servicePriceCents,
+        priceCents: totalPriceCents,
         notes: input.notes,
+        services: {
+          create: services.map((service, index) => ({
+            serviceId: service.id,
+            serviceName: service.name,
+            priceCents: service.priceCents,
+            durationMin: service.durationMin,
+            sortOrder: index,
+          })),
+        },
       },
+      include: { services: { orderBy: { sortOrder: "asc" } } },
     });
   });
 
@@ -379,22 +436,21 @@ export async function createManualAppointment(input: OnlineBookingInput) {
   const clientPhone = normalizeClientPhone(input.clientPhone);
 
   return withDateLock(input.date, async (tx) => {
+    const services = await resolveActiveServices(tx, input.serviceIds);
+    const { totalDurationMin, totalPriceCents } = combineServices(services);
+
     await assertClientNotPenalized(tx, clientPhone, now, settings);
 
     const endMinute = await assertSlotBookable(tx, {
       dateKey: input.date,
       startMinute: input.startMinute,
+      durationMin: totalDurationMin,
       settings,
       now,
       options: { allowPastSlots: true },
     });
 
-    let code = generateAppointmentCode();
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      const exists = await tx.appointment.findUnique({ where: { code } });
-      if (!exists) break;
-      code = generateAppointmentCode();
-    }
+    const code = await generateUniqueCode(tx);
 
     return tx.appointment.create({
       data: {
@@ -406,9 +462,19 @@ export async function createManualAppointment(input: OnlineBookingInput) {
         endMinute,
         status: "CONFIRMED",
         source: "MANUAL",
-        priceCents: settings.servicePriceCents,
+        priceCents: totalPriceCents,
         notes: input.notes,
+        services: {
+          create: services.map((service, index) => ({
+            serviceId: service.id,
+            serviceName: service.name,
+            priceCents: service.priceCents,
+            durationMin: service.durationMin,
+            sortOrder: index,
+          })),
+        },
       },
+      include: { services: { orderBy: { sortOrder: "asc" } } },
     });
   });
 }
@@ -416,5 +482,6 @@ export async function createManualAppointment(input: OnlineBookingInput) {
 export async function findAppointmentByCode(code: string) {
   return prisma.appointment.findUnique({
     where: { code },
+    include: { services: { orderBy: { sortOrder: "asc" } } },
   });
 }

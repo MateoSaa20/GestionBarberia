@@ -1,6 +1,6 @@
 # Gestor de turnos para barbería
 
-Aplicación Next.js para reservar turnos online y gestionar la agenda desde un panel administrativo. El cliente reserva eligiendo día y horario con su nombre y teléfono, sin recibir correos. El precio del servicio es informativo: no se cobra ni se solicita seña online. La reserva queda confirmada al instante y el barbero recibe un aviso por email.
+Aplicación Next.js para reservar turnos online y gestionar la agenda desde un panel administrativo. El cliente elige el servicio y reserva eligiendo día y horario con su nombre y teléfono, sin recibir correos. El precio del servicio es informativo: no se cobra ni se solicita seña online. La reserva queda confirmada al instante y el barbero recibe un aviso por email.
 
 ## Desarrollo local
 
@@ -25,6 +25,16 @@ npm run dev
 ```
 
 Abrí [http://localhost:3000](http://localhost:3000). El panel admin está en `/admin`.
+
+## Servicios
+
+En `/admin/servicios` se administran los servicios ofrecidos. Cada uno tiene nombre, precio y duración propios.
+
+- **Agregar**: creá un servicio nuevo con nombre, precio y duración.
+- **Editar**: cambiá nombre, precio o duración de un servicio existente.
+- **Activar/Desactivar**: los servicios inactivos no aparecen en la web para reservar, pero se conservan los turnos históricos que los usaron. Se pueden reactivar cuando quieras.
+- La disponibilidad (días, horarios y bloqueos) es compartida para todos los servicios; la duración de cada turno depende del servicio elegido. El buffer entre turnos es global y se configura en `/admin/configuracion`.
+- En la reserva online, si hay un solo servicio activo se selecciona automáticamente; con más de uno, el cliente elige.
 
 ## Penalizaciones por no asistir
 
@@ -94,7 +104,25 @@ Prisma se usa en desarrollo (`prisma migrate dev`), pero producción se migra co
 
 ### Emails
 
-La app solo envía un aviso al barbero (`ADMIN_EMAIL`) cuando entra una reserva online. Verificá el dominio en Resend y usá ese dominio en `EMAIL_FROM`. Con `onboarding@resend.dev` solo podés enviar al email de tu cuenta de Resend, no a terceros.
+La app solo envía un email de confirmación al barbero (`ADMIN_EMAIL`) cuando entra una reserva online, con el servicio, fecha, horario, precio, teléfono y código del turno. Si falla el envío, el turno igual queda confirmado y el error se registra en los logs.
+
+Para diagnosticar la configuración usá:
+
+```bash
+npm run email:test
+```
+
+El script muestra qué variables detectó, valida los emails y hace un envío de prueba contra Resend informando el error exacto.
+
+Causas frecuentes de que no llegue el correo:
+
+- **`onboarding@resend.dev` como remitente:** Resend solo entrega a la dirección dueña de la cuenta de Resend, no a terceros. Verificá un dominio y usalo en `EMAIL_FROM` (`Barbería <turnos@tu-dominio-verificado>`).
+- **Dominio sin verificar** en Resend.
+- **Variables ausentes en Netlify:** el `.env` es local y no se despliega. Cargá `RESEND_API_KEY`, `ADMIN_EMAIL` y `EMAIL_FROM` en `Site configuration > Environment variables` y redeployá.
+- **Comillas o espacios** al pegar los valores en Netlify; el código las limpia, pero conviene cargarlas sin comillas.
+- **API key inválida o revocada**.
+- **El correo cayó en spam** o Resend lo rechazó; revisá `Resend > Emails > Logs`.
+
 
 ## Comandos
 

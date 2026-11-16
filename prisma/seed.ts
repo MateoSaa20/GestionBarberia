@@ -22,9 +22,6 @@ async function main() {
     create: {
       id: 1,
       businessName: "Barbería",
-      serviceName: "Corte de cabello",
-      servicePriceCents: 1200000,
-      serviceDurationMin: 30,
       bufferMin: 10,
       minLeadTimeMin: 60,
       bookingWindowDays: 60,
@@ -33,6 +30,19 @@ async function main() {
         "Si no podés asistir, avisanos con al menos 24 horas de anticipación.",
     },
   });
+
+  const serviceCount = await prisma.service.count();
+  if (serviceCount === 0) {
+    await prisma.service.create({
+      data: {
+        name: "Corte de cabello",
+        priceCents: 1200000,
+        durationMin: 30,
+        active: true,
+        sortOrder: 0,
+      },
+    });
+  }
 
   const scheduleCount = await prisma.weeklySchedule.count();
   if (scheduleCount === 0) {

@@ -13,6 +13,7 @@ import { SiteHeader } from "@/components/site-header";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { Alert, StatusBadge } from "@/components/ui";
 import { findAppointmentByCode } from "@/lib/booking";
+import { summarizeServiceNames } from "@/lib/services";
 import { firstParam } from "@/lib/search-params";
 import { getSettings } from "@/lib/settings";
 import {
@@ -108,7 +109,7 @@ export default async function TurnoPage({
               <div className="flex-1">
                 <dt className="text-stone-500">Servicio</dt>
                 <dd className="font-medium text-stone-900">
-                  {settings.serviceName}
+                  {summarizeServiceNames(appointment.services)}
                 </dd>
               </div>
               <span className="text-stone-900">

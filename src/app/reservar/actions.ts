@@ -17,6 +17,7 @@ export type BookingFormState = { error?: string } | undefined;
 const bookingSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Fecha inválida"),
   time: z.string().min(1, "Elegí un horario"),
+  serviceId: z.string().min(1, "Elegí un servicio"),
   clientName: z
     .string()
     .trim()
@@ -43,9 +44,14 @@ export type SlotsResult = {
   message: string | null;
 };
 
-export async function getSlotsAction(date: string): Promise<SlotsResult> {
+export async function getSlotsAction(
+  date: string,
+  serviceId: string,
+): Promise<SlotsResult> {
   try {
-    const availability = await getAvailability(date);
+    const availability = await getAvailability(date, {
+      serviceIds: [serviceId],
+    });
     return {
       date,
       slots: availability.slots,
@@ -70,6 +76,7 @@ export async function createBookingAction(
   const parsed = bookingSchema.safeParse({
     date: formData.get("date"),
     time: formData.get("time"),
+    serviceId: formData.get("serviceId"),
     clientName: formData.get("clientName"),
     clientPhone: formData.get("clientPhone"),
     notes: formData.get("notes") || undefined,
@@ -91,6 +98,7 @@ export async function createBookingAction(
     const result = await createOnlineAppointment({
       date: parsed.data.date,
       startMinute,
+      serviceIds: [parsed.data.serviceId],
       clientName: parsed.data.clientName,
       clientPhone: parsed.data.clientPhone,
       notes: parsed.data.notes,
@@ -105,9 +113,16 @@ export async function createBookingAction(
     return { error: "No pudimos crear la reserva. Probá de nuevo." };
   }
 
-  await sendNewAppointmentNotification(appointment, settings).catch(
-    () => undefined,
-  );
+  try {
+    const sent = await sendNewAppointmentNotification(appointment, settings);
+    if (!sent) {
+      console.error(
+        `[reserva] El turno ${appointment.code} quedó confirmado pero el aviso por email NO se envió. Revisá la configuración de Resend.`,
+      );
+    }
+  } catch (error) {
+    console.error("[reserva] No se pudo enviar el aviso por email:", error);
+  }
 
   revalidatePath("/");
   revalidatePath("/reservar");

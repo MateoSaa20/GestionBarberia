@@ -102,6 +102,7 @@ function refreshAll() {
   revalidatePath("/admin/agenda");
   revalidatePath("/admin/turnos");
   revalidatePath("/admin/disponibilidad");
+  revalidatePath("/admin/servicios");
   revalidatePath("/admin/configuracion");
   revalidatePath("/admin/penalizaciones");
 }
@@ -125,26 +126,17 @@ function safeAdminRedirect(path: string): string {
 export async function saveSettingsAction(formData: FormData): Promise<void> {
   await requireAdmin();
 
-  const priceArs = Number(formData.get("servicePrice"));
-  const duration = Number(formData.get("serviceDurationMin"));
   const buffer = Number(formData.get("bufferMin"));
   const lead = Number(formData.get("minLeadTimeMin"));
   const windowDays = Number(formData.get("bookingWindowDays"));
   const penaltyDays = Number(formData.get("penaltyDays"));
   const businessName = String(formData.get("businessName") ?? "").trim();
-  const serviceName = String(formData.get("serviceName") ?? "").trim();
   const cancellationPolicy = String(
     formData.get("cancellationPolicy") ?? "",
   ).trim();
 
   const valid =
     businessName.length >= 2 &&
-    serviceName.length >= 2 &&
-    Number.isFinite(priceArs) &&
-    priceArs >= 0 &&
-    Number.isInteger(duration) &&
-    duration >= 5 &&
-    duration <= 480 &&
     Number.isInteger(buffer) &&
     buffer >= 0 &&
     buffer <= 120 &&
@@ -173,9 +165,6 @@ export async function saveSettingsAction(formData: FormData): Promise<void> {
     where: { id: 1 },
     data: {
       businessName,
-      serviceName,
-      servicePriceCents: Math.round(priceArs * 100),
-      serviceDurationMin: duration,
       bufferMin: buffer,
       minLeadTimeMin: lead,
       bookingWindowDays: windowDays,
@@ -186,6 +175,122 @@ export async function saveSettingsAction(formData: FormData): Promise<void> {
 
   refreshAll();
   redirect(withMessage("/admin/configuracion", "ok", "Configuración guardada"));
+}
+
+const serviceSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(2, "Ingresá un nombre de servicio")
+    .max(80, "El nombre es demasiado largo"),
+  priceCents: z
+    .number()
+    .int("Ingresá un precio válido")
+    .min(0, "El precio no puede ser negativo")
+    .max(100_000_000, "El precio es demasiado alto"),
+  durationMin: z
+    .number()
+    .int("Ingresá una duración válida")
+    .min(5, "La duración mínima es 5 minutos")
+    .max(480, "La duración máxima es 8 horas"),
+});
+
+function parseServiceForm(formData: FormData) {
+  return serviceSchema.safeParse({
+    name: formData.get("name"),
+    priceCents: Math.round(Number(formData.get("price") ?? "") * 100),
+    durationMin: Number(formData.get("durationMin")),
+  });
+}
+
+export async function createServiceAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+
+  const parsed = parseServiceForm(formData);
+  if (!parsed.success) {
+    redirect(
+      withMessage(
+        "/admin/servicios",
+        "error",
+        parsed.error.issues[0]?.message ?? "Revisá los datos del servicio",
+      ),
+    );
+  }
+
+  const last = await prisma.service.findFirst({
+    orderBy: { sortOrder: "desc" },
+  });
+
+  await prisma.service.create({
+    data: {
+      name: parsed.data.name,
+      priceCents: parsed.data.priceCents,
+      durationMin: parsed.data.durationMin,
+      active: true,
+      sortOrder: (last?.sortOrder ?? 0) + 1,
+    },
+  });
+
+  refreshAll();
+  redirect(withMessage("/admin/servicios", "ok", "Servicio agregado"));
+}
+
+export async function updateServiceAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+
+  const id = String(formData.get("id") ?? "");
+  const parsed = parseServiceForm(formData);
+  if (!id || !parsed.success) {
+    redirect(
+      withMessage(
+        "/admin/servicios",
+        "error",
+        parsed.success
+          ? "Servicio inválido"
+          : (parsed.error.issues[0]?.message ?? "Revisá los datos"),
+      ),
+    );
+  }
+
+  await prisma.service.update({
+    where: { id },
+    data: {
+      name: parsed.data.name,
+      priceCents: parsed.data.priceCents,
+      durationMin: parsed.data.durationMin,
+    },
+  });
+
+  refreshAll();
+  redirect(withMessage("/admin/servicios", "ok", "Servicio actualizado"));
+}
+
+export async function toggleServiceAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+
+  const id = String(formData.get("id") ?? "");
+  if (!id) {
+    redirect(withMessage("/admin/servicios", "error", "Servicio inválido"));
+  }
+
+  const service = await prisma.service.findUnique({ where: { id } });
+  if (!service) {
+    redirect(withMessage("/admin/servicios", "error", "Servicio no encontrado"));
+  }
+
+  await prisma.service.update({
+    where: { id },
+    data: { active: !service.active },
+  });
+
+  refreshAll();
+  redirect(
+    withMessage(
+      "/admin/servicios",
+      "ok",
+      service.active ? "Servicio desactivado" : "Servicio activado",
+    ),
+  );
 }
 
 const scheduleSchema = z.array(
@@ -374,6 +479,7 @@ export async function createManualAppointmentAction(
 
   const date = String(formData.get("date") ?? "");
   const start = parseTimeToMinutes(String(formData.get("time") ?? ""));
+  const serviceId = String(formData.get("serviceId") ?? "");
   const clientName = String(formData.get("clientName") ?? "").trim();
   const clientPhone = String(formData.get("clientPhone") ?? "").trim();
   const notes = String(formData.get("notes") ?? "").trim() || undefined;
@@ -390,6 +496,7 @@ export async function createManualAppointmentAction(
 
   if (
     !isValidDateKey(date) ||
+    !serviceId ||
     clientName.length < 2 ||
     clientPhone.length < 6
   ) {
@@ -406,6 +513,7 @@ export async function createManualAppointmentAction(
     await createManualAppointment({
       date,
       startMinute: start,
+      serviceIds: [serviceId],
       clientName,
       clientPhone,
       notes,

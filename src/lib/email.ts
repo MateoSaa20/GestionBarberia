@@ -1,9 +1,17 @@
 import "server-only";
 
 import { Resend } from "resend";
-import type { Appointment } from "@prisma/client";
+import type { Appointment, AppointmentService } from "@prisma/client";
 import type { Settings } from "./settings";
-import { formatCurrency, formatDateLong, formatMinutes } from "./time";
+import { summarizeServiceNames } from "./services";
+import {
+  formatCurrency,
+  formatDateLong,
+  formatDateShort,
+  formatMinutes,
+} from "./time";
+
+type AppointmentWithServices = Appointment & { services: AppointmentService[] };
 
 function escapeHtml(value: string): string {
   return value
@@ -14,15 +22,34 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#039;");
 }
 
+function envValue(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  if (!value) return undefined;
+
+  const unquoted = value.replace(/^(["'])(.*)\1$/, "$2").trim();
+  return unquoted || undefined;
+}
+
 function getFrom(): string {
-  return process.env.EMAIL_FROM ?? "Barbería <onboarding@resend.dev>";
+  return envValue("EMAIL_FROM") ?? "Barbería <onboarding@resend.dev>";
 }
 
 function getAppUrl(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(
+  return (envValue("NEXT_PUBLIC_APP_URL") ?? "http://localhost:3000").replace(
     /\/$/,
     "",
   );
+}
+
+function describeEmailError(error: unknown): string {
+  if (!error || typeof error !== "object") return String(error);
+
+  const record = error as Record<string, unknown>;
+  const parts = ["name", "message", "statusCode"]
+    .filter((key) => record[key] !== undefined)
+    .map((key) => `${key}=${String(record[key])}`);
+
+  return parts.length ? parts.join(" | ") : JSON.stringify(error);
 }
 
 async function sendEmail(input: {
@@ -30,27 +57,28 @@ async function sendEmail(input: {
   subject: string;
   html: string;
   text: string;
-}): Promise<void> {
-  const apiKey = process.env.RESEND_API_KEY;
+}): Promise<boolean> {
+  const apiKey = envValue("RESEND_API_KEY");
+  const from = getFrom();
 
   if (!apiKey) {
     if (process.env.NODE_ENV === "production") {
       console.warn(
         `[email] RESEND_API_KEY no configurada. Se omitió el email "${input.subject}".`,
       );
-      return;
+      return false;
     }
 
     console.info(
       `[email:dev] Para: ${input.to} | Asunto: ${input.subject}\n${input.text}`,
     );
-    return;
+    return true;
   }
 
   try {
     const resend = new Resend(apiKey);
-    const { error } = await resend.emails.send({
-      from: getFrom(),
+    const { data, error } = await resend.emails.send({
+      from,
       to: input.to,
       subject: input.subject,
       html: input.html,
@@ -58,15 +86,33 @@ async function sendEmail(input: {
     });
 
     if (error) {
-      console.error("[email] No se pudo enviar:", error);
+      console.error(
+        `[email] Resend rechazó "${input.subject}" (from=${from}, to=${input.to}): ${describeEmailError(error)}`,
+      );
+
+      if (error.name === "validation_error" && /resend\.dev/i.test(from)) {
+        console.error(
+          "[email] Con onboarding@resend.dev solo se puede enviar al email dueño de la cuenta de Resend. Verificá un dominio o cambiá ADMIN_EMAIL.",
+        );
+      }
+
+      return false;
     }
+
+    console.info(
+      `[email] Enviado "${input.subject}" a ${input.to} (from=${from}, id=${data?.id}).`,
+    );
+    return true;
   } catch (error) {
-    console.error("[email] Error inesperado:", error);
+    console.error(
+      `[email] Error inesperado al enviar "${input.subject}" (from=${from}, to=${input.to}): ${describeEmailError(error)}`,
+    );
+    return false;
   }
 }
 
 function buildHtml(input: {
-  appointment: Appointment;
+  appointment: AppointmentWithServices;
   settings: Settings;
 }): string {
   const { appointment, settings } = input;
@@ -74,10 +120,10 @@ function buildHtml(input: {
 
   return `
     <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; color: #1c1917;">
-      <h1 style="font-size: 22px; margin-bottom: 8px;">Nuevo turno</h1>
-      <p style="color: #57534e; line-height: 1.5;">${escapeHtml(appointment.clientName)} reservó un turno.</p>
+      <h1 style="font-size: 22px; margin-bottom: 8px;">Turno confirmado</h1>
+      <p style="color: #57534e; line-height: 1.5;">${escapeHtml(appointment.clientName)} reservó un turno que quedó confirmado automáticamente.</p>
       <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
-        <tr><td style="padding: 8px 0; color: #78716c;">Servicio</td><td style="padding: 8px 0; text-align: right; font-weight: bold;">${escapeHtml(settings.serviceName)}</td></tr>
+        <tr><td style="padding: 8px 0; color: #78716c;">Servicio</td><td style="padding: 8px 0; text-align: right; font-weight: bold;">${escapeHtml(summarizeServiceNames(appointment.services))}</td></tr>
         <tr><td style="padding: 8px 0; color: #78716c;">Fecha</td><td style="padding: 8px 0; text-align: right; font-weight: bold;">${escapeHtml(formatDateLong(appointment.date))}</td></tr>
         <tr><td style="padding: 8px 0; color: #78716c;">Hora</td><td style="padding: 8px 0; text-align: right; font-weight: bold;">${formatMinutes(appointment.startMinute)} hs</td></tr>
         <tr><td style="padding: 8px 0; color: #78716c;">Precio</td><td style="padding: 8px 0; text-align: right;">${formatCurrency(appointment.priceCents)}</td></tr>
@@ -94,16 +140,18 @@ function buildHtml(input: {
 }
 
 function buildText(input: {
-  appointment: Appointment;
+  appointment: AppointmentWithServices;
   settings: Settings;
 }): string {
   const { appointment, settings } = input;
   return [
-    "Nuevo turno",
+    "Turno confirmado",
+    "",
+    `${appointment.clientName} reservó un turno que quedó confirmado automáticamente.`,
     "",
     `Cliente: ${appointment.clientName}`,
     `Teléfono: ${appointment.clientPhone}`,
-    `Servicio: ${settings.serviceName}`,
+    `Servicio: ${summarizeServiceNames(appointment.services)}`,
     `Fecha: ${formatDateLong(appointment.date)}`,
     `Hora: ${formatMinutes(appointment.startMinute)} hs`,
     `Precio: ${formatCurrency(appointment.priceCents)}`,
@@ -119,15 +167,27 @@ function buildText(input: {
 }
 
 export async function sendNewAppointmentNotification(
-  appointment: Appointment,
+  appointment: AppointmentWithServices,
   settings: Settings,
-): Promise<void> {
-  const adminEmail = process.env.ADMIN_EMAIL;
-  if (!adminEmail) return;
+): Promise<boolean> {
+  const adminEmail = envValue("ADMIN_EMAIL");
+  if (!adminEmail) {
+    console.warn(
+      "[email] ADMIN_EMAIL no configurada. Se omitió el aviso de turno confirmado.",
+    );
+    return false;
+  }
 
-  await sendEmail({
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(adminEmail)) {
+    console.error(
+      `[email] ADMIN_EMAIL no parece un email válido ("${adminEmail}"). Revisá comillas o espacios en la variable de entorno.`,
+    );
+    return false;
+  }
+
+  return sendEmail({
     to: adminEmail,
-    subject: `Nuevo turno - ${appointment.clientName}`,
+    subject: `Turno confirmado - ${appointment.clientName} - ${formatDateShort(appointment.date)} ${formatMinutes(appointment.startMinute)} hs`,
     html: buildHtml({ appointment, settings }),
     text: buildText({ appointment, settings }),
   });

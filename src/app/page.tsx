@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, CalendarCheck, Clock3, Scissors } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
+import { getActiveServices } from "@/lib/services";
 import { getSettings } from "@/lib/settings";
 import { formatCurrency } from "@/lib/time";
 
@@ -14,6 +15,7 @@ export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   const settings = await getSettings();
+  const services = await getActiveServices();
 
   return (
     <div className="flex min-h-screen flex-col bg-stone-50">
@@ -31,25 +33,33 @@ export default async function HomePage() {
             Reservá tu turno eligiendo día y horario.
           </p>
 
-          <dl className="mt-6 grid grid-cols-2 gap-3 text-left">
-            <div className="rounded-xl bg-stone-50 px-3 py-2.5">
-              <dt className="text-xs text-stone-500">Servicio</dt>
-              <dd className="mt-0.5 text-sm font-semibold text-stone-900">
-                {settings.serviceName}
-              </dd>
-            </div>
-            <div className="rounded-xl bg-stone-50 px-3 py-2.5">
-              <dt className="text-xs text-stone-500">Precio</dt>
-              <dd className="mt-0.5 text-sm font-semibold text-stone-900">
-                {formatCurrency(settings.servicePriceCents)}
-              </dd>
-            </div>
-          </dl>
-
-          <p className="mt-3 flex items-center justify-center gap-1.5 text-xs text-stone-500">
-            <Clock3 className="h-3.5 w-3.5" />
-            {settings.serviceDurationMin} minutos por turno
-          </p>
+          {services.length > 0 ? (
+            <ul className="mt-6 space-y-2 text-left">
+              {services.map((service) => (
+                <li
+                  key={service.id}
+                  className="flex items-center justify-between rounded-xl bg-stone-50 px-3 py-2.5"
+                >
+                  <span className="text-sm font-semibold text-stone-900">
+                    {service.name}
+                  </span>
+                  <span className="flex items-center gap-2 text-xs text-stone-500">
+                    <span className="font-medium text-stone-900">
+                      {formatCurrency(service.priceCents)}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Clock3 className="h-3.5 w-3.5" />
+                      {service.durationMin} min
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-6 text-sm text-stone-500">
+              Por ahora no hay servicios disponibles.
+            </p>
+          )}
 
           <Link
             href="/reservar"

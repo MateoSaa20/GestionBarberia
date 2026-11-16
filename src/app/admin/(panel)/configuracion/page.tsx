@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Save, Settings2 } from "lucide-react";
-import { centsToAmount } from "@/lib/time";
 import { getSettings } from "@/lib/settings";
 import { saveSettingsAction } from "../../actions";
 import { firstParam } from "@/lib/search-params";
@@ -52,7 +52,7 @@ export default async function ConfiguracionPage({
     <div>
       <PageHeader
         title="Configuración"
-        subtitle="Datos del negocio, precios y reglas de reserva."
+        subtitle="Datos del negocio y reglas de reserva."
       />
 
       {okMessage ? <Alert kind="ok">{okMessage}</Alert> : null}
@@ -69,7 +69,7 @@ export default async function ConfiguracionPage({
         <section>
           <h2 className="flex items-center gap-2 text-sm font-semibold text-stone-900">
             <Settings2 className="h-4 w-4 text-amber-600" />
-            Negocio y servicio
+            Negocio
           </h2>
           <div className="mt-3 grid gap-4 sm:grid-cols-2">
             <Field label="Nombre del negocio">
@@ -80,50 +80,26 @@ export default async function ConfiguracionPage({
                 className={inputClass}
               />
             </Field>
-            <Field label="Nombre del servicio">
-              <input
-                name="serviceName"
-                required
-                defaultValue={settings.serviceName}
-                className={inputClass}
-              />
-            </Field>
-            <Field label="Precio del servicio (ARS)">
-              <input
-                name="servicePrice"
-                type="number"
-                min={0}
-                step={100}
-                required
-                defaultValue={centsToAmount(settings.servicePriceCents)}
-                className={inputClass}
-              />
-            </Field>
           </div>
+          <p className="mt-3 text-xs text-stone-500">
+            Los servicios, precios y duraciones se administran en{" "}
+            <Link
+              href="/admin/servicios"
+              className="font-medium text-amber-700 hover:underline"
+            >
+              Servicios
+            </Link>
+            .
+          </p>
         </section>
 
         <div className="h-px bg-stone-100" />
 
         <section>
           <h2 className="text-sm font-semibold text-stone-900">
-            Duración y disponibilidad
+            Disponibilidad
           </h2>
           <div className="mt-3 grid gap-4 sm:grid-cols-2">
-            <Field
-              label="Duración del turno (min)"
-              hint="Tiempo que ocupa cada servicio."
-            >
-              <input
-                name="serviceDurationMin"
-                type="number"
-                min={5}
-                max={480}
-                step={5}
-                required
-                defaultValue={settings.serviceDurationMin}
-                className={inputClass}
-              />
-            </Field>
             <Field
               label="Buffer entre turnos (min)"
               hint="Descanso o limpieza entre un turno y el siguiente."
