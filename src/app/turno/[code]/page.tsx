@@ -143,7 +143,7 @@ export default async function TurnoPage({
               <div className="flex-1">
                 <dt className="text-stone-500">Lugar</dt>
                 <dd className="font-medium text-stone-900">
-                  {settings.businessName}
+                  {settings.businessAddress || settings.businessName}
                 </dd>
               </div>
             </div>

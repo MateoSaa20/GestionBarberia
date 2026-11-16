@@ -22,6 +22,7 @@ async function main() {
     create: {
       id: 1,
       businessName: "Barbería",
+      businessAddress: "",
       bufferMin: 10,
       minLeadTimeMin: 60,
       bookingWindowDays: 60,

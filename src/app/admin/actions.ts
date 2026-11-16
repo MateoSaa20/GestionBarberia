@@ -131,12 +131,14 @@ export async function saveSettingsAction(formData: FormData): Promise<void> {
   const windowDays = Number(formData.get("bookingWindowDays"));
   const penaltyDays = Number(formData.get("penaltyDays"));
   const businessName = String(formData.get("businessName") ?? "").trim();
+  const businessAddress = String(formData.get("businessAddress") ?? "").trim();
   const cancellationPolicy = String(
     formData.get("cancellationPolicy") ?? "",
   ).trim();
 
   const valid =
     businessName.length >= 2 &&
+    businessAddress.length <= 200 &&
     Number.isInteger(buffer) &&
     buffer >= 0 &&
     buffer <= 120 &&
@@ -165,6 +167,7 @@ export async function saveSettingsAction(formData: FormData): Promise<void> {
     where: { id: 1 },
     data: {
       businessName,
+      businessAddress,
       bufferMin: buffer,
       minLeadTimeMin: lead,
       bookingWindowDays: windowDays,

@@ -80,6 +80,17 @@ export default async function ConfiguracionPage({
                 className={inputClass}
               />
             </Field>
+            <Field
+              label="Dirección del local"
+              hint="Se muestra al cliente como lugar del turno."
+            >
+              <input
+                name="businessAddress"
+                defaultValue={settings.businessAddress}
+                className={inputClass}
+                placeholder="Ej: Av. Siempre Viva 742"
+              />
+            </Field>
           </div>
           <p className="mt-3 text-xs text-stone-500">
             Los servicios, precios y duraciones se administran en{" "}

@@ -18,6 +18,7 @@ model AdminUser {
 model Settings {
   id                 Int      @id @default(1)
   businessName       String   @default("Barbería")
+  businessAddress    String   @default("")
   bufferMin          Int      @default(10)
   minLeadTimeMin     Int      @default(60)
   bookingWindowDays  Int      @default(60)
